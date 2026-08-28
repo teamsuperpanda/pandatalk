@@ -7,7 +7,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/Fedora-only-294172?style=flat-square" alt="Fedora only">
-  <img src="https://img.shields.io/badge/version-1.0.0-brightgreen?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.1-brightgreen?style=flat-square" alt="Version">
 </p>
 
 Push-to-talk dictation for Fedora. Hold a key, speak, and your words are typed
@@ -37,9 +37,10 @@ curl -fsSL https://raw.githubusercontent.com/teamsuperpanda/pandatalk/main/insta
 ```
 
 The installer does everything: installs ydotool and portaudio, enables the
-ydotool daemon, adds you to the `input` group, sets up a virtualenv, and puts
-`pandatalk` on your PATH. It then asks which key you want to hold to talk -
-press Enter to keep `LEFT CTRL`, or type a key name like `KEY_CAPSLOCK`.
+ydotool daemon, adds you to the `input` group, sets up a virtualenv, puts
+`pandatalk` on your PATH, and registers it as a systemd user service that
+starts on login. It then asks which key you want to hold to talk - press
+Enter to keep `LEFT CTRL`, or type a key name like `KEY_CAPSLOCK`.
 
 If it adds you to the `input` group, log out and back in once before first use.
 

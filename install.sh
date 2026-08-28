@@ -65,7 +65,26 @@ exec "$APP_DIR/.venv/bin/python" "$APP_DIR/pandatalk.py" "\$@"
 EOF
 chmod +x "$HOME/.local/bin/pandatalk"
 
-# 7. Pick a push-to-talk key (default LEFT CTRL). Read from /dev/tty so this
+# 7. Autostart pandatalk on login via a systemd user service.
+#    The whisper model is ~150 MB; first download may take a moment.
+cat > "$HOME/.config/systemd/user/pandatalk.service" <<EOF
+[Unit]
+Description=Panda Talk push-to-talk dictation
+After=ydotool.service
+Requires=ydotool.service
+
+[Service]
+ExecStart=$HOME/.local/bin/pandatalk
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload
+systemctl --user enable --now pandatalk \
+    || echo "==> warning: could not enable pandatalk service (log out and back in, then: systemctl --user enable --now pandatalk)"
+
+# 8. Pick a push-to-talk key (default LEFT CTRL). Read from /dev/tty so this
 #    works even when the script is piped in via curl | bash. Falls back to the
 #    default when there is no terminal (e.g. automated install).
 echo

@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.1] - 2026-08-29
+- Autostart pandatalk on login via a systemd user service. No need to start it manually after install or reboot.
+
 ## [1.0.0] - 2026-08-18
 - Initial release: hold a key, talk, and the words are typed into the focused window.
 - Works on GNOME Wayland and X11 via raw evdev input and ydotool.

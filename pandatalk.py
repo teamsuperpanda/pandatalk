@@ -32,7 +32,7 @@ import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 LOG_PATH = os.path.join(
     os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
