@@ -3,11 +3,12 @@
 All notable changes to this project will be documented in this file.
 
 ## [1.1] - 2026-08-29
-- Self-update: pandatalk checks GitHub for a new release at login (via the systemd user service) and installs it automatically. No manual updates needed.
-- Existing installs: re-run the installer once so the service picks up the update check.
-
-## [1.0.1] - 2026-08-29
-- Autostart pandatalk on login via a systemd user service. No need to start it manually after install or reboot.
+- **Streaming**: words are typed as you speak them while the key is held, instead of all at once after you release.
+- **Punctuation**: say "question mark", "comma", "period", and ~30 other words or phrases and they are typed as the symbol instead of the words.
+- **Smart spacing**: single spaces, punctuation glued to the word before it (no space before a comma or question mark), and sentence-start capitalization.
+- **Firm tap protection**: the microphone does not open at all until the key has been held a moment, so accidental taps never arm the mic and never steal input.
+- **Autostart**: pandatalk starts on login via a systemd user service. No need to start it manually after install or reboot.
+- **Self-update**: pandatalk checks GitHub for a new release at login (via the systemd user service) and installs it automatically. No manual updates needed.
 
 ## [1.0.0] - 2026-08-18
 - Initial release: hold a key, talk, and the words are typed into the focused window.

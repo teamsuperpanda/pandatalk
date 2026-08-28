@@ -22,6 +22,8 @@ Built by [Team Super Panda](https://www.teamsuperpanda.com).
 - **Push to talk**: the microphone is only open while you hold the key. Tap it and nothing happens.
 - **Works on Wayland and X11**: keys are read from raw input devices and text is injected with ydotool, so there is no X11 dependency.
 - **On-device transcription**: runs [faster-whisper](https://github.com/SYSTRAN/faster-whisper) locally on CPU. Nothing leaves your machine.
+- **Streaming**: your words appear in the focused window as you speak, not all at once after you release.
+- **Punctuation**: say "question mark", "comma", "period", or "new line" and the symbol is typed instead of the words.
 - **Private by default**: nothing is recorded or stored while idle, and nothing is kept after typing.
 
 ## Requirements
@@ -62,6 +64,14 @@ pandatalk --selftest               # verify the audio math, no mic needed
 names are evdev key names such as `KEY_CAPSLOCK`, `KEY_RIGHTSHIFT`, or `KEY_F20`.
 On machines with more than one keyboard, use `--device` to point at the one you
 actually hold (see the troubleshooting table).
+
+### Dictating
+
+Words are typed into the focused window as you speak, then cleaned up on
+release. You can dictate punctuation by saying its name: "question mark",
+"comma", "period", "exclamation point", "colon", "semicolon", "new line",
+"new paragraph", "open paren", "close paren", "hyphen", "underscore", "at
+sign", "hashtag", and a few more. Say "new paragraph" to finish a paragraph.
 
 The first time you run it, the whisper model downloads automatically and is cached.
 
