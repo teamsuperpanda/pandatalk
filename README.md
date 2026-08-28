@@ -7,7 +7,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/Fedora-only-294172?style=flat-square" alt="Fedora only">
-  <img src="https://img.shields.io/badge/version-1.0.1-brightgreen?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.1-brightgreen?style=flat-square" alt="Version">
 </p>
 
 Push-to-talk dictation for Fedora. Hold a key, speak, and your words are typed
@@ -79,11 +79,16 @@ pandatalk --model small    # multilingual, more accurate
 
 ## Update
 
-Run the same install command again. It pulls the latest code and refreshes dependencies:
+Panda Talk checks GitHub for new releases each time you log in (the systemd
+service runs an update check before starting) and installs them automatically.
+There is nothing to run. To check right now:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/teamsuperpanda/pandatalk/main/install.sh | bash
+systemctl --user restart pandatalk
 ```
+
+Re-run the one-command installer from the [Install](#install) section if you
+ever want a clean reinstall.
 
 ## Troubleshooting
 

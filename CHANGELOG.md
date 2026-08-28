@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1] - 2026-08-29
+- Self-update: pandatalk checks GitHub for a new release at login (via the systemd user service) and installs it automatically. No manual updates needed.
+- Existing installs: re-run the installer once so the service picks up the update check.
+
 ## [1.0.1] - 2026-08-29
 - Autostart pandatalk on login via a systemd user service. No need to start it manually after install or reboot.
 

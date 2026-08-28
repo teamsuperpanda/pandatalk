@@ -67,6 +67,8 @@ chmod +x "$HOME/.local/bin/pandatalk"
 
 # 7. Autostart pandatalk on login via a systemd user service.
 #    The whisper model is ~150 MB; first download may take a moment.
+#    ExecStartPre runs update.sh, which checks GitHub for new releases and
+#    pulls them automatically before pandatalk starts.
 cat > "$HOME/.config/systemd/user/pandatalk.service" <<EOF
 [Unit]
 Description=Panda Talk push-to-talk dictation
@@ -74,6 +76,7 @@ After=ydotool.service
 Requires=ydotool.service
 
 [Service]
+ExecStartPre=$APP_DIR/update.sh
 ExecStart=$HOME/.local/bin/pandatalk
 Restart=on-failure
 
