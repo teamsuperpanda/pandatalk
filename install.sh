@@ -24,24 +24,19 @@ fi
 echo "==> installing system packages (ydotool, portaudio)"
 sudo dnf install -y ydotool portaudio
 
-# 3. ydotool daemon as YOUR user (not root) so the client can reach its socket.
-#    The ydotool RPM only ships a system unit, which runs as root and creates a
-#    root-owned socket the client cannot use. Write a user unit instead.
-mkdir -p "$HOME/.config/systemd/user"
-cat > "$HOME/.config/systemd/user/ydotool.service" <<'EOF'
-[Unit]
-Description=ydotoold (user)
-
-[Service]
-ExecStart=/usr/bin/ydotoold
-Restart=always
-
-[Install]
-WantedBy=default.target
-EOF
-systemctl --user daemon-reload
-systemctl --user enable --now ydotool \
-    || echo "==> warning: could not start the ydotool user service (is your systemd user session running?)"
+# 3. ydotool is installed by the step above. pandatalk starts ydotoold itself,
+#    on demand, only while it is actually typing, and stops it again shortly
+#    after. A persistently-running ydotoold virtual keyboard interferes with the
+#    real keyboard on Wayland/GNOME (the input session can lock up until the
+#    daemon is stopped), so we deliberately do NOT run it as a background service.
+#    Remove any leftover persistent ydotool service from older installs so it
+#    cannot revive on next login and re-break the keyboard.
+if [ -f "$HOME/.config/systemd/user/ydotool.service" ]; then
+    systemctl --user disable --now ydotool 2>/dev/null || true
+    rm -f "$HOME/.config/systemd/user/ydotool.service"
+    systemctl --user daemon-reload
+    echo "==> removed old persistent ydotool service (pandatalk now manages it on demand)"
+fi
 
 # 4. 'input' group so pandatalk can read raw keyboard events.
 if id -nG "$USER_NAME" | grep -qw input; then
@@ -72,8 +67,6 @@ chmod +x "$HOME/.local/bin/pandatalk"
 cat > "$HOME/.config/systemd/user/pandatalk.service" <<EOF
 [Unit]
 Description=Panda Talk push-to-talk dictation
-After=ydotool.service
-Requires=ydotool.service
 
 [Service]
 ExecStartPre=$APP_DIR/update.sh

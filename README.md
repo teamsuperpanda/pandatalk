@@ -38,11 +38,16 @@ One command:
 curl -fsSL https://raw.githubusercontent.com/teamsuperpanda/pandatalk/main/install.sh | bash
 ```
 
-The installer does everything: installs ydotool and portaudio, enables the
-ydotool daemon, adds you to the `input` group, sets up a virtualenv, puts
-`pandatalk` on your PATH, and registers it as a systemd user service that
-starts on login. It then asks which key you want to hold to talk - press
-Enter to keep `LEFT CTRL`, or type a key name like `KEY_CAPSLOCK`.
+The installer does everything: installs ydotool and portaudio, adds you to the
+`input` group, sets up a virtualenv, puts `pandatalk` on your PATH, and
+registers it as a systemd user service that starts on login. It then asks which
+key you want to hold to talk - press Enter to keep `LEFT CTRL`, or type a key
+name like `KEY_CAPSLOCK`.
+
+pandatalk starts `ydotoold` itself, on demand, only while it is typing, and
+stops it again a few seconds later. The daemon is deliberately NOT left running
+as a background service: a persistent ydotoold virtual keyboard clashes with the
+real keyboard on Wayland/GNOME and can lock up the input session.
 
 If it adds you to the `input` group, log out and back in once before first use.
 
@@ -106,8 +111,8 @@ ever want a clean reinstall.
 |---|---|
 | `cannot read input devices` | You are not in the `input` group. Run `sudo usermod -aG input $USER`, log out and back in. |
 | `PortAudio library not found` | `sudo dnf install portaudio`, then re-run the installer. |
-| Text does not appear when you type | ydotool daemon not running as you. Run `systemctl --user enable --now ydotool`. |
-| `ydotool: permission denied` on the socket | Same as above: the daemon must run as your user, not root. |
+| Text does not appear when you type | pandatalk starts ydotoold on demand. If typing fails, check you are in the `input` group (`id -nG`) and that `/dev/uinput` is group-writable; log out and back in after joining the group. Do NOT run ydotoold as a persistent service - it can lock up your keyboard on Wayland. |
+| `ydotool: permission denied` on the socket | The daemon must run as your user, not root. pandatalk launches it for you; if it cannot open `/dev/uinput`, fix uinput permissions (above), not a system-wide service. |
 | Nothing types, or text goes to the wrong window | More than one keyboard detected. Pass `--device /dev/input/eventN` to pick the one you hold. |
 
 ## Limitations

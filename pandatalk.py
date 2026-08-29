@@ -19,6 +19,7 @@ Usage:
 """
 
 import argparse
+import atexit
 import glob
 import json
 import os
@@ -32,7 +33,7 @@ import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
 
-__version__ = "1.1"
+__version__ = "1.2"
 
 LOG_PATH = os.path.join(
     os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
@@ -175,9 +176,76 @@ def _prefix_match(new_tokens, typed_tokens):
     return i
 
 
+# ydotoold lifecycle: it is launched only while we actually type, and stopped a
+# short while after we finish. A ydotoold virtual keyboard that stays up
+# permanently clashes with the real keyboard on Wayland/GNOME and can lock up
+# the input session until the daemon is killed, so we never leave it resident.
+_ydotoold = None
+_ydotoold_lock = threading.Lock()
+_ydotoold_stop_timer = None
+YDOTOOLD_IDLE_S = 10.0
+
+
+def _ydotool_socket_path():
+    return f"/run/user/{os.getuid()}/.ydotool_socket"
+
+
+def _ensure_ydotoold():
+    """Start ydotoold if it is not already running (or already running via
+    another launch). Safe to call before every type; cheap when up."""
+    global _ydotoold, _ydotoold_stop_timer
+    with _ydotoold_lock:
+        # Drop any pending idle-stop: we are about to type again.
+        if _ydotoold_stop_timer is not None:
+            _ydotoold_stop_timer.cancel()
+            _ydotoold_stop_timer = None
+        if _ydotoold is not None and _ydotoold.poll() is None:
+            return
+        # Reuse a daemon the user may have started by hand (older setups).
+        if (subprocess.run(["pgrep", "-x", "ydotoold"],
+                           capture_output=True).returncode == 0
+                and os.path.exists(_ydotool_socket_path())):
+            return
+        _ydotoold = subprocess.Popen(["/usr/bin/ydotoold"],
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+        time.sleep(0.5)   # let the uinput device register before we type
+
+
+def _stop_ydotoold():
+    global _ydotoold, _ydotoold_stop_timer
+    with _ydotoold_lock:
+        if _ydotoold_stop_timer is not None:
+            _ydotoold_stop_timer.cancel()
+            _ydotoold_stop_timer = None
+        if _ydotoold is not None:
+            _ydotoold.terminate()
+            try:
+                _ydotoold.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                _ydotoold.kill()
+            _ydotoold = None
+
+
+def _schedule_ydotoold_stop():
+    global _ydotoold_stop_timer
+    with _ydotoold_lock:
+        if _ydotoold is None:
+            return
+        if _ydotoold_stop_timer is not None:
+            _ydotoold_stop_timer.cancel()
+        _ydotoold_stop_timer = threading.Timer(YDOTOOLD_IDLE_S, _stop_ydotoold)
+        _ydotoold_stop_timer.daemon = True
+        _ydotoold_stop_timer.start()
+
+
+atexit.register(_stop_ydotoold)
+
+
 def type_text(text):
     if not text:
         return
+    _ensure_ydotoold()
     debug(f"typing {len(text)} chars")
     result = subprocess.run(["ydotool", "type", "--key-delay", "10",
                              "--escape", "0", text],
@@ -186,6 +254,8 @@ def type_text(text):
     if result.returncode != 0:
         print(f"[pandatalk] typing failed: {result.stderr.strip()}",
               file=sys.stderr, flush=True)
+    else:
+        _schedule_ydotoold_stop()
 
 
 def _transcribe(model, audio):
