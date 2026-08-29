@@ -33,7 +33,7 @@ import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
 
-__version__ = "1.2"
+__version__ = "1.2.1"
 
 LOG_PATH = os.path.join(
     os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
@@ -73,14 +73,27 @@ pressed = threading.Event()   # set while an accepted PTT key press is held
 held = threading.Event()      # set only for presses that started a capture
 busy = threading.Lock()       # one transcription session at a time
 
-# Streaming state for the current session, guarded by _state.
-_state = threading.Lock()
-_session_id = 0               # bumped on each press; stale loops bail out
-_frames = []                  # every int16 frame captured this session
-_new_frames = []              # frames not yet transcribed
-_typed = []                   # tokens already sent to the keyboard
-_capture_done = threading.Event()   # mic has stopped feeding audio
-_capture_cond = threading.Condition(_state)
+
+class Session:
+    """Everything owned by one press-hold: captured audio, typed tokens and
+    completion flag. Each press gets its own Session so a superseded
+    transcription can finish without touching the next press's state."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.frames = []              # every int16 frame captured this session
+        self.new_frames = []          # frames not yet transcribed
+        self.typed = []               # tokens already sent to the keyboard
+        self.done = threading.Event() # mic has stopped feeding audio
+        self.cond = threading.Condition(self.lock)
+
+
+_current = None            # Session of the most recent press, guarded by _current_lock
+_current_lock = threading.Lock()
+
+
+def is_current(session):
+    with _current_lock:
+        return session is _current
 
 
 def assemble(frames):
@@ -243,19 +256,25 @@ atexit.register(_stop_ydotoold)
 
 
 def type_text(text):
+    """Type `text`, returning True only if ydotool confirmed it. Retries once:
+    ydotoold is started on demand and may not be ready the first time."""
     if not text:
-        return
-    _ensure_ydotoold()
-    debug(f"typing {len(text)} chars")
-    result = subprocess.run(["ydotool", "type", "--key-delay", "10",
-                             "--escape", "0", text],
-                            capture_output=True, text=True)
-    debug(f"ydotool exit {result.returncode}: {result.stderr.strip()}")
-    if result.returncode != 0:
-        print(f"[pandatalk] typing failed: {result.stderr.strip()}",
-              file=sys.stderr, flush=True)
-    else:
-        _schedule_ydotoold_stop()
+        return True
+    result = None
+    for attempt in range(2):
+        _ensure_ydotoold()
+        debug(f"typing {len(text)} chars (attempt {attempt + 1})")
+        result = subprocess.run(["ydotool", "type", "--key-delay", "10",
+                                 "--escape", "0", text],
+                                capture_output=True, text=True)
+        debug(f"ydotool exit {result.returncode}: {result.stderr.strip()}")
+        if result.returncode == 0:
+            _schedule_ydotoold_stop()
+            return True
+        time.sleep(0.7)
+    print(f"[pandatalk] typing failed: {result.stderr.strip()}",
+          file=sys.stderr, flush=True)
+    return False
 
 
 def _transcribe(model, audio):
@@ -272,43 +291,51 @@ def _transcribe(model, audio):
     return postprocess(words)
 
 
-def _commit(tokens, force=False):
+def _commit(session, tokens, force=False):
     """Type the part of `tokens` that extends what is already on screen.
     If the model revised earlier words, skip (do not type over what is
     already on screen) unless `force`, which the final authoritative pass
-    uses so no words are lost."""
-    with _state:
-        old = list(_typed)
+    uses so no words are lost. `typed` only advances when typing succeeds,
+    so a failed keystroke is retried by the next pass."""
+    with session.lock:
+        old = list(session.typed)
     common = _prefix_match(tokens, old)
     if common < len(old) and not force:
         return                              # revision: leave screen as is
     to_type = tokens[common:]
+    ok = True
     if to_type:
-        type_text(_render(to_type, start=not old,
-                          prev=old[-1] if old else None))
-    with _state:
-        _typed[:] = tokens
+        ok = type_text(_render(to_type, start=not old,
+                               prev=old[-1] if old else None))
+    if ok:
+        with session.lock:
+            session.typed[:] = tokens
 
 
-def stream_loop(model, session_id):
+def stream_loop(model, session):
     """The only thread that transcribes. Types stable words while holding,
     delayed by one pass so revisions never double-type, then a final pass on
-    release catches the tail. Releases `busy` exactly once when finished."""
+    release catches the tail. Waits its turn on `busy` (the mic keeps
+    buffering meanwhile), so a press is never dropped because the previous
+    utterance is still transcribing. Releases `busy` exactly once."""
     staged = None
+    busy.acquire()
     try:
         while True:
-            with _state:
-                if session_id != _session_id:
-                    break                      # stale session, bail out
-                if _new_frames:
-                    audio = assemble(_frames)  # full & consistent view
-                    _new_frames.clear()
-                    final = False
-                elif _capture_done.is_set():
-                    audio = assemble(_frames)
+            stale = not is_current(session)
+            with session.lock:
+                if session.done.is_set():
+                    audio = assemble(session.frames)
                     final = True
+                elif stale:
+                    session.cond.wait(0.5)   # superseded; capture is wrapping up
+                    continue
+                elif session.new_frames:
+                    audio = assemble(session.frames)   # full, consistent view
+                    session.new_frames.clear()
+                    final = False
                 else:
-                    _capture_cond.wait(STREAM_TICK)
+                    session.cond.wait(STREAM_TICK)
                     continue
             if len(audio) == 0:
                 if final:
@@ -318,10 +345,10 @@ def stream_loop(model, session_id):
             if final:
                 # Authoritative: force-commit the full last transcription so
                 # no tail words are lost even if the model revised earlier ones.
-                _commit(tokens, force=True)
+                _commit(session, tokens, force=True)
                 break
             if staged is not None:
-                _commit(staged)
+                _commit(session, staged)
             staged = tokens
     except Exception as e:
         debug(f"stream_loop error: {type(e).__name__}: {e}")
@@ -330,68 +357,63 @@ def stream_loop(model, session_id):
         debug("session done")
 
 
-def capture(model):
+def capture(model, session):
     """Mic thread: read audio while the key is held and feed the streamer."""
     start = time.monotonic()
     try:
         with sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
                             dtype="int16") as stream:
-            while pressed.is_set() and (time.monotonic() - start) < MAX_HOLD_S:
+            while (pressed.is_set()
+                   and (time.monotonic() - start) < MAX_HOLD_S
+                   and is_current(session)):
                 data, _ = stream.read(1600)
                 chunk = data[:, 0].copy()
-                with _state:
-                    _frames.append(chunk)
-                    _new_frames.append(chunk)
-                    _capture_cond.notify_all()
+                with session.lock:
+                    session.frames.append(chunk)
+                    session.new_frames.append(chunk)
+                    session.cond.notify_all()
     except Exception as e:
         debug(f"capture error: {type(e).__name__}: {e}")
     debug(f"captured {time.monotonic() - start:.2f}s")
-    with _state:
-        _capture_done.set()
-        _capture_cond.notify_all()
+    with session.lock:
+        session.done.set()
+        session.cond.notify_all()
 
 
-def _deferred_start(model, sid):
-    """Wait out the tap-debounce, then start capture. `busy` is acquired here
-    (not in on_press) so a re-press during the debounce is not dropped."""
+def _deferred_start(model, session):
+    """Wait out the tap-debounce, then start capture. Capture starts even if
+    the previous utterance is still transcribing: the mic is owned by the
+    press, and `stream_loop` waits its turn on `busy`."""
     time.sleep(MIN_HOLD_S)
-    if not busy.acquire(blocking=False):
-        debug("press ignored, busy")
-        with _state:
-            if sid == _session_id:
-                held.clear()
-                pressed.clear()
+    with _current_lock:
+        stale = session is not _current
+    if stale or not held.is_set():
+        debug("tap: mic never opened")
         return
-    with _state:
-        if sid != _session_id or not held.is_set():
-            busy.release()          # a tap: the mic never opened
-            debug("tap: mic never opened")
-            return
-        _frames.clear()
-        _new_frames.clear()
-        _typed.clear()
-        _capture_done.clear()
+    with session.lock:
+        session.frames.clear()
+        session.new_frames.clear()
+        session.typed.clear()
+        session.done.clear()
     debug("press: starting capture")
-    threading.Thread(target=capture, args=(model,), daemon=True).start()
-    threading.Thread(target=stream_loop, args=(model, sid), daemon=True).start()
+    threading.Thread(target=capture, args=(model, session), daemon=True).start()
+    threading.Thread(target=stream_loop, args=(model, session), daemon=True).start()
 
 
 def on_press(model):
-    global _session_id
-    with _state:
-        _session_id += 1
-        sid = _session_id
+    global _current
+    with _current_lock:
+        session = Session()
+        _current = session
     held.set()
     pressed.set()
-    threading.Thread(target=_deferred_start, args=(model, sid), daemon=True).start()
+    threading.Thread(target=_deferred_start, args=(model, session), daemon=True).start()
 
 
 def on_release():
     if held.is_set():
         held.clear()
         pressed.clear()
-        with _capture_cond:
-            _capture_cond.notify_all()
 
 
 def selftest():
